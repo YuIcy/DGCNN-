@@ -1,3 +1,0 @@
-Namespace(exp_name='semseg_s3dis_vis_5', model='dgcnn', dataset='S3DIS', test_area='5', batch_size=32, test_batch_size=16, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, model_root='outputs/semseg_s3dis_5/models/', visu='area_5', visu_format='ply')
-Using GPU : 0 from 1 devices
-Test :: test area: 5, test acc: 0.833372, test avg acc: 0.583391, test iou: 0.483911
