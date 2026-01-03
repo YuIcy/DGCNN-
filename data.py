@@ -259,7 +259,7 @@ class S3DIS(Dataset):
         # 3. 核心改进：坐标归一化 (关键：解决 Code1 训练曲线不平滑问题)
         # 这是 Code2 效果好的核心原因之一
         
-        pointcloud = normalize_pointcloud(pointcloud)
+        # pointcloud = normalize_pointcloud(pointcloud)
         # 4. 在线数据增强 (仅在训练集开启)
         if self.partition == 'train':
             # 随机打乱点序 (原有逻辑保留)
@@ -269,9 +269,9 @@ class S3DIS(Dataset):
             seg = seg[indices]
             
             # 加入几何变换增强 (解决 mIoU 低的问题)
-            pointcloud = rotate_pointcloud(pointcloud)
-            pointcloud = translate_pointcloud(pointcloud)
-            pointcloud = jitter_pointcloud(pointcloud)
+            # pointcloud = rotate_pointcloud(pointcloud)
+            # pointcloud = translate_pointcloud(pointcloud)
+            # pointcloud = jitter_pointcloud(pointcloud)
 
         
         # 5. 保持输出格式兼容原有 Workflow

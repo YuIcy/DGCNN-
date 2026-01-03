@@ -11,13 +11,15 @@
 from __future__ import print_function
 import os
 import argparse
+import time
+import uuid
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 from data import S3DIS
-from model import DGCNN_semseg_s3dis
+from model import DGCNN_semseg_s3dis,DGCNN_Adaptor,DGCNNpp
 import numpy as np
 from torch.utils.data import DataLoader
 from util import cal_loss, IOStream
@@ -35,14 +37,14 @@ visual_warning = True
 def _init_():
     if not os.path.exists('outputs'):
         os.makedirs('outputs')
-    if not os.path.exists('outputs/'+args.exp_dir):
-        os.makedirs('outputs/'+args.exp_dir)
-    if not os.path.exists('outputs/'+args.exp_dir+'/'+'models'):
-        os.makedirs('outputs/'+args.exp_dir+'/'+'models')
-    os.system('cp main_semseg_s3dis.py outputs'+'/'+args.exp_dir+'/'+'main_semseg_s3dis.py.backup')
-    os.system('cp model.py outputs' + '/' + args.exp_dir + '/' + 'model.py.backup')
-    os.system('cp util.py outputs' + '/' + args.exp_dir + '/' + 'util.py.backup')
-    os.system('cp data.py outputs' + '/' + args.exp_dir + '/' + 'data.py.backup')
+    if not os.path.exists(args.exp_dir):
+        os.makedirs(args.exp_dir)
+    if not os.path.exists(args.exp_dir+'/'+'models'):
+        os.makedirs(args.exp_dir+'/'+'models')
+    os.system('cp main_semseg_s3dis.py outputs'+'/'+args.job_name+'/'+'main_semseg_s3dis.py.backup')
+    os.system('cp model.py outputs' + '/' + args.job_name + '/' + 'model.py.backup')
+    os.system('cp util.py outputs' + '/' + args.job_name + '/' + 'util.py.backup')
+    os.system('cp data.py outputs' + '/' + args.job_name + '/' + 'data.py.backup')
 
 
 def calculate_sem_IoU(pred_np, seg_np, visual=False):
@@ -93,8 +95,8 @@ def visualization(visu, visu_format, test_choice, data, seg, pred, visual_file_i
         if skip:
             visual_file_index = visual_file_index + 1
         else:
-            if not os.path.exists('outputs/'+args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname):
-                os.makedirs('outputs/'+args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname)
+            if not os.path.exists(args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname):
+                os.makedirs(args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname)
             
             data = np.loadtxt('data/indoor3d_sem_seg_hdf5_data_test/raw_data3d/Area_'+test_area+'/'+roomname+'('+str(visual_file_index)+').txt')
             visual_file_index = visual_file_index + 1
@@ -106,8 +108,8 @@ def visualization(visu, visu_format, test_choice, data, seg, pred, visual_file_i
             xyzRGB_gt = np.concatenate((data, np.array(RGB_gt)), axis=1)
             room_seg.append(seg[i].cpu().numpy())
             room_pred.append(pred[i].cpu().numpy()) 
-            f = open('outputs/'+args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'.txt', "a")
-            f_gt = open('outputs/'+args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_gt.txt', "a")
+            f = open(args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'.txt', "a")
+            f_gt = open(args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_gt.txt', "a")
             np.savetxt(f, xyzRGB, fmt='%s', delimiter=' ') 
             np.savetxt(f_gt, xyzRGB_gt, fmt='%s', delimiter=' ') 
             
@@ -117,10 +119,10 @@ def visualization(visu, visu_format, test_choice, data, seg, pred, visual_file_i
                 room_pred = []
                 room_seg = []
                 if visu_format == 'ply':
-                    filepath = 'outputs/'+args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_pred_'+mIoU+'.ply'
-                    filepath_gt = 'outputs/'+args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_gt.ply'
-                    xyzRGB = np.loadtxt('outputs/'+args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'.txt')
-                    xyzRGB_gt = np.loadtxt('outputs/'+args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_gt.txt')
+                    filepath = args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_pred_'+mIoU+'.ply'
+                    filepath_gt = args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_gt.ply'
+                    xyzRGB = np.loadtxt(args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'.txt')
+                    xyzRGB_gt = np.loadtxt(args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_gt.txt')
                     xyzRGB = [(xyzRGB[i, 0], xyzRGB[i, 1], xyzRGB[i, 2], xyzRGB[i, 3], xyzRGB[i, 4], xyzRGB[i, 5]) for i in range(xyzRGB.shape[0])]
                     xyzRGB_gt = [(xyzRGB_gt[i, 0], xyzRGB_gt[i, 1], xyzRGB_gt[i, 2], xyzRGB_gt[i, 3], xyzRGB_gt[i, 4], xyzRGB_gt[i, 5]) for i in range(xyzRGB_gt.shape[0])]
                     vertex = PlyElement.describe(np.array(xyzRGB, dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4'), ('red', 'u1'), ('green', 'u1'), ('blue', 'u1')]), 'vertex')
@@ -129,11 +131,11 @@ def visualization(visu, visu_format, test_choice, data, seg, pred, visual_file_i
                     vertex = PlyElement.describe(np.array(xyzRGB_gt, dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4'), ('red', 'u1'), ('green', 'u1'), ('blue', 'u1')]), 'vertex')
                     PlyData([vertex]).write(filepath_gt)
                     print('PLY visualization file saved in', filepath_gt)
-                    os.system('rm -rf '+'outputs/'+args.exp_dir+'/visualization/area_'+test_area+'/'+roomname+'/*.txt')
+                    os.system('rm -rf '+args.exp_dir+'/visualization/area_'+test_area+'/'+roomname+'/*.txt')
                 else:
-                    filename = 'outputs/'+args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'.txt'
-                    filename_gt = 'outputs/'+args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_gt.txt'
-                    filename_mIoU = 'outputs/'+args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_pred_'+mIoU+'.txt'
+                    filename = args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'.txt'
+                    filename_gt = args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_gt.txt'
+                    filename_mIoU = args.exp_dir+'/'+'visualization'+'/'+'area_'+test_area+'/'+roomname+'/'+roomname+'_pred_'+mIoU+'.txt'
                     os.rename(filename, filename_mIoU)
                     print('TXT visualization file saved in', filename_mIoU)
                     print('TXT visualization file saved in', filename_gt)
@@ -155,6 +157,10 @@ def train(args, io):
     #Try to load models
     if args.model == 'dgcnn':
         model = DGCNN_semseg_s3dis(args).to(device)
+    elif args.model == 'adapt_dgcnn':
+        model = DGCNN_Adaptor(args).to(device)
+    elif args.model == 'dgcnnpp':
+        model = DGCNNpp(args,mode = args.ablation_mode).to(device)
     else:
         raise Exception("Not implemented")
     print(str(model))
@@ -166,8 +172,8 @@ def train(args, io):
         print("Use SGD")
         opt = optim.SGD(model.parameters(), lr=args.lr*100, momentum=args.momentum, weight_decay=1e-4)
     else:
-        print("Use Adam")
-        opt = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
+        print("Use AdamW")
+        opt = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
     if args.scheduler == 'cos':
         scheduler = CosineAnnealingLR(opt, args.epochs, eta_min=1e-3)
@@ -291,7 +297,7 @@ def train(args, io):
         io.cprint(outstr)
         if np.mean(test_ious) >= best_test_iou:
             best_test_iou = np.mean(test_ious)
-            torch.save(model.state_dict(), 'outputs/%s/models/model_%s.t7' % (args.exp_dir, args.test_area))
+            torch.save(model.state_dict(), 'outputs/%s/models/model_%s.t7' % (args.job_name, args.test_area))
     writer.close()
 
 
@@ -382,11 +388,17 @@ def test(args, io):
 
 if __name__ == "__main__":
     # Training settings
+    timestamp = time.strftime('%Y%m%d_%H%M%S')
     parser = argparse.ArgumentParser(description='Point Cloud Part Segmentation')
     parser.add_argument('--exp_name', type=str, default=None, metavar='N',
                         help='Name of the experiment')
+    parser.add_argument('--job_name', type=str, default=None, metavar='N',
+                        help='Name of the job')
     parser.add_argument('--model', type=str, default='dgcnn', metavar='N',
-                        choices=['dgcnn'],
+                        choices=['dgcnn','adapt_dgcnn','dgcnnpp'],
+                        help='Model to use, [dgcnn]')
+    parser.add_argument('--ablation_mode', type=str, default='full', metavar='N',
+                        choices=['full','gating_only','attn_only'],
                         help='Model to use, [dgcnn]')
     parser.add_argument('--dataset', type=str, default='S3DIS', metavar='N',
                         choices=['S3DIS'])
@@ -396,9 +408,9 @@ if __name__ == "__main__":
                         help='Size of batch)')
     parser.add_argument('--test_batch_size', type=int, default=16, metavar='batch_size',
                         help='Size of batch)')
-    parser.add_argument('--epochs', type=int, default=100, metavar='N',
+    parser.add_argument('--epochs', type=int, default=150, metavar='N',
                         help='number of episode to train ')
-    parser.add_argument('--use_sgd', type=bool, default=True,
+    parser.add_argument('--use_sgd', type=bool, default=False,
                         help='Use SGD')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='learning rate (default: 0.001, 0.1 if using sgd)')
@@ -436,11 +448,11 @@ if __name__ == "__main__":
                     args.momentum, args.lr, args.batch_size)
     if not args.job_name:
         args.job_name = '_'.join([args.exp_name, timestamp, str(uuid.uuid4())])
-    args.exp_dir = os.path.join(args.root_dir, args.job_name)
+    args.exp_dir = os.path.join('outputs', args.job_name)
 
     _init_()
 
-    io = IOStream('outputs/' + args.exp_name + '/run.log')
+    io = IOStream(os.path.join(args.exp_dir,'run.log'))
     io.cprint(str(args))
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
