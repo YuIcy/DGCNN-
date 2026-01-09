@@ -20,7 +20,7 @@ def export_ply(pc, filename):
 	ply_out = PlyData([PlyElement.describe(vertex, 'vertex', comments=['vertices'])])
 	ply_out.write(filename)
 
-# Sample points on the obj shape
+# Sample points on the obj shape[
 def get_sampling_command(obj_filename, ply_filename):
     cmd = SAMPLING_BIN + ' ' + obj_filename
     cmd += ' ' + ply_filename
@@ -36,7 +36,7 @@ def get_sampling_command(obj_filename, ply_filename):
 def get_category_names():
     shape_names_file = os.path.join(MODELNET40_PATH, 'shape_names.txt')
     shape_names = [line.rstrip() for line in open(shape_names_file)]
-    return shape_names
+    return shape_names]
 
 # Return all the filepaths for the shapes in MODELNET40 
 def get_obj_filenames():
