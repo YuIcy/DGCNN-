@@ -19,7 +19,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 from data import S3DIS
-from model import DGCNN_semseg_s3dis,DGCNN_Adaptor,DGCNNpp
+from model import DGCNN_semseg_s3dis,DGCNN_Adaptor,DGCNNpp, DGCNNpp_Robust, GumbelScheduler
 import numpy as np
 from torch.utils.data import DataLoader
 from util import cal_loss, IOStream
@@ -161,6 +161,17 @@ def train(args, io):
         model = DGCNN_Adaptor(args).to(device)
     elif args.model == 'dgcnnpp':
         model = DGCNNpp(args,mode = args.ablation_mode).to(device)
+    elif args.model == 'dgcnnpp_soft':
+        model = DGCNNpp(args,mode = args.ablation_mode,block_type='soft').to(device)
+    elif args.model == 'dgcnnpp_soft_pe':
+        model = DGCNNpp(args,mode = args.ablation_mode,block_type='soft_pe').to(device)
+    elif args.model == 'dgcnnpp_grouped':
+        model = DGCNNpp(args,mode = args.ablation_mode,block_type='grouped_soft_pe').to(device)
+    elif args.model == 'dgcnnpp_robust':
+        model = DGCNNpp_Robust(args,mode = args.ablation_mode).to(device)
+        g_scheduler = GumbelScheduler(total_epochs=200, start_tau=5.0, end_tau=0.1)
+        target_sparsity = 0.4 
+        lambda_reg = 1e-3 # 正则化权重
     else:
         raise Exception("Not implemented")
     print(str(model))
@@ -178,7 +189,7 @@ def train(args, io):
     if args.scheduler == 'cos':
         scheduler = CosineAnnealingLR(opt, args.epochs, eta_min=1e-3)
     elif args.scheduler == 'step':
-        scheduler = StepLR(opt, 20, 0.5, args.epochs)
+        scheduler = StepLR(opt, 20, 0.5)
 
     criterion = cal_loss
 
@@ -195,14 +206,32 @@ def train(args, io):
         train_true_seg = []
         train_pred_seg = []
         train_label_seg = []
+        if args.model == 'dgcnnpp_robust':
+            tau = g_scheduler.get_tau(epoch)
+            hard = g_scheduler.get_hard(epoch)
         for data, seg in train_loader:
             data, seg = data.to(device), seg.to(device)
             data = data.permute(0, 2, 1)
             batch_size = data.size()[0]
             opt.zero_grad()
-            seg_pred = model(data)
+            if args.model == 'dgcnnpp_robust':
+                seg_pred,logits_list = model(data, tau=tau, hard=hard)
+            else:
+                seg_pred = model(data)
             seg_pred = seg_pred.permute(0, 2, 1).contiguous()
             loss = criterion(seg_pred.view(-1, 13), seg.view(-1,1).squeeze())
+            if args.model == 'dgcnnpp_robust':
+                # 计算稀疏性正则化项
+                reg_loss = 0
+                for logits in logits_list:
+                    # 计算 Sigmoid 后的平均激活值 (即保留率)
+                    keep_rate = torch.sigmoid(logits).mean()
+                    # L1 惩罚：希望 keep_rate 接近 target_sparsity
+                    reg_loss += torch.abs(keep_rate - target_sparsity)
+                    
+                    # 或者使用更强制的 Loss：惩罚 logits 的模长，鼓励稀疏
+                    # reg_loss += torch.sigmoid(logits).mean() # 越少越好
+                loss = loss + lambda_reg * reg_loss
             loss.backward()
             opt.step()
             pred = seg_pred.max(dim=2)[1]               # (batch_size, num_points)
@@ -261,7 +290,10 @@ def train(args, io):
                 data, seg = data.to(device), seg.to(device)
                 data = data.permute(0, 2, 1)
                 batch_size = data.size()[0]
-                seg_pred = model(data)
+                if args.model == 'dgcnnpp_robust':
+                    seg_pred, _ = model(data, tau=0.1, hard=True)
+                else:
+                    seg_pred = model(data)
                 seg_pred = seg_pred.permute(0, 2, 1).contiguous()
                 loss = criterion(seg_pred.view(-1, 13), seg.view(-1,1).squeeze())
                 pred = seg_pred.max(dim=2)[1]
@@ -395,7 +427,7 @@ if __name__ == "__main__":
     parser.add_argument('--job_name', type=str, default=None, metavar='N',
                         help='Name of the job')
     parser.add_argument('--model', type=str, default='dgcnn', metavar='N',
-                        choices=['dgcnn','adapt_dgcnn','dgcnnpp'],
+                        choices=['dgcnn','adapt_dgcnn','dgcnnpp','dgcnnpp_robust','dgcnnpp_soft','dgcnnpp_soft_pe','dgcnnpp_grouped'],
                         help='Model to use, [dgcnn]')
     parser.add_argument('--ablation_mode', type=str, default='full', metavar='N',
                         choices=['full','gating_only','attn_only'],
@@ -442,10 +474,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if not args.exp_name:
-        args.exp_name = '{}-{}-k{}-dims{}-points{}-momentum_{}-lr{}-B{}' \
+        args.exp_name = '{}-{}-k{}-mode{}-points{}-momentum_{}-lr{}-B{}-epoch{}' \
             .format(os.path.basename(os.getcwd()),  # using the basename as the experiment prefix name.
-                    args.model, args.k, args.emb_dims, args.num_points,
-                    args.momentum, args.lr, args.batch_size)
+                    args.model, args.k, args.ablation_mode, args.num_points,
+                    args.momentum, args.lr, args.batch_size,args.epochs)
     if not args.job_name:
         args.job_name = '_'.join([args.exp_name, timestamp, str(uuid.uuid4())])
     args.exp_dir = os.path.join('outputs', args.job_name)
