@@ -566,7 +566,7 @@ class DGCNNpp(nn.Module):
         # 4. GSL 聚合
         net_3 = self.gsl_block3(edge_feat_3, rel_pos=rel_pos_3) 
 
-
+ 
         # ---------------- Fusion & Prediction (不变) ----------------
         feats = torch.cat((net_1, net_2, net_3), dim=1) # (B, 192, N)
 
@@ -1109,7 +1109,7 @@ class Soft_GSL_Block_PE(nn.Module):
             
             # --- 聚合 ---
             # 路一: Vector Attention 聚合
-            out_attn = (trans_feat * attn_weights).sum(dim=-1)
+            out_attn =  (clean_feat * attn_weights).sum(dim=-1)
             
             # 路二: Max Pooling 保底 (基于清洗后的特征)
             out_max = clean_feat.max(dim=-1)[0]
