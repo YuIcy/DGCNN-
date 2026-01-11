@@ -357,6 +357,21 @@ def test(args, io):
             semseg_colors = test_loader.dataset.semseg_colors
             if args.model == 'dgcnn':
                 model = DGCNN_semseg_s3dis(args).to(device)
+            elif args.model == 'adapt_dgcnn':
+                model = DGCNN_Adaptor(args).to(device)
+            elif args.model == 'dgcnnpp':
+                model = DGCNNpp(args,mode = args.ablation_mode).to(device)
+            elif args.model == 'dgcnnpp_soft':
+                model = DGCNNpp(args,mode = args.ablation_mode,block_type='soft').to(device)
+            elif args.model == 'dgcnnpp_soft_pe':
+                model = DGCNNpp(args,mode = args.ablation_mode,block_type='soft_pe').to(device)
+            elif args.model == 'dgcnnpp_grouped':
+                model = DGCNNpp(args,mode = args.ablation_mode,block_type='grouped_soft_pe').to(device)
+            elif args.model == 'dgcnnpp_robust':
+                model = DGCNNpp_Robust(args,mode = args.ablation_mode).to(device)
+                g_scheduler = GumbelScheduler(total_epochs=200, start_tau=5.0, end_tau=0.1)
+                target_sparsity = 0.4 
+                lambda_reg = 1e-3 # 正则化权重
             else:
                 raise Exception("Not implemented")
                 
